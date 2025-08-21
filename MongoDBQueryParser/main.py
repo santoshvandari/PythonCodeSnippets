@@ -1,18 +1,42 @@
-import re,ast, json, uuid, time, datetime, asyncio
+import re, ast, json, uuid, time, datetime, asyncio
 from pymongo import MongoClient
 
 RUNNING_QUERIES = {}  # Store running queries with their run_id
 
 ALLOWED_FIRST_METHODS = {"find", "aggregate"}
 ALLOWED_CHAIN_METHODS = {
-    "sort", "skip", "limit", "hint", "maxTimeMS", "collation", "batchSize", "comment", "allowDiskUse"
+    "sort",
+    "skip",
+    "limit",
+    "hint",
+    "maxTimeMS",
+    "collation",
+    "batchSize",
+    "comment",
+    "allowDiskUse",
 }
-DISALLOWED_METHODS = {"insert", "update", "remove", "delete", "replace", "drop", "insertOne", "insertMany","updateOne", "updateMany", "deleteOne", "deleteMany", "bulkWrite"}
+DISALLOWED_METHODS = {
+    "insert",
+    "update",
+    "remove",
+    "delete",
+    "replace",
+    "drop",
+    "insertOne",
+    "insertMany",
+    "updateOne",
+    "updateMany",
+    "deleteOne",
+    "deleteMany",
+    "bulkWrite",
+}
+
 
 def get_mongo_database():
     client = MongoClient("mongodb://admin:admin@localhost:27017")
     database = client["mydb"]
     return database
+
 
 def convert_mongo_syntax_to_python(s: str) -> str:
     """
@@ -23,23 +47,20 @@ def convert_mongo_syntax_to_python(s: str) -> str:
     """
     # Replace JavaScript booleans/null
     s = s.replace("true", "True").replace("false", "False").replace("null", "None")
-    
+
     # Convert new Date(...) to ISO string placeholders that ast.literal_eval can handle
     def date_replacer(match):
         date_str = match.group(1)
         # Just return the date string - we'll process it later
         return f'"{date_str}"'
-    
-    s = re.sub(
-        r'new\s+Date\s*\(\s*"(.*?)"\s*\)',
-        date_replacer,
-        s
-    )
+
+    s = re.sub(r'new\s+Date\s*\(\s*"(.*?)"\s*\)', date_replacer, s)
 
     # Quote Mongo keys (unquoted words followed by :)
-    s = re.sub(r'([{,]\s*)(\$?[a-zA-Z_][\w$]*)(\s*:)', r'\1"\2"\3', s)
+    s = re.sub(r"([{,]\s*)(\$?[a-zA-Z_][\w$]*)(\s*:)", r'\1"\2"\3', s)
 
     return s
+
 
 def process_parsed_args(obj):
     """
@@ -50,7 +71,9 @@ def process_parsed_args(obj):
         result = {}
         for key, value in obj.items():
             # Check if this looks like a date field with date operators
-            if key in ['$gte', '$lt', '$lte', '$gt', '$ne', '$eq'] and isinstance(value, str):
+            if key in ["$gte", "$lt", "$lte", "$gt", "$ne", "$eq"] and isinstance(
+                value, str
+            ):
                 if is_iso_date_string(value):
                     result[key] = parse_iso_date_string(value)
                 else:
@@ -63,46 +86,55 @@ def process_parsed_args(obj):
     else:
         return obj
 
+
 def is_iso_date_string(s):
     """Check if string looks like an ISO date"""
     if not isinstance(s, str):
         return False
     # Check for ISO date format
-    return re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$', s) is not None
+    return (
+        re.match(
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$", s
+        )
+        is not None
+    )
+
 
 def parse_iso_date_string(date_str):
     """Parse ISO date string to datetime object"""
     try:
-        if date_str.endswith('Z'):
-            date_str = date_str[:-1] + '+00:00'
+        if date_str.endswith("Z"):
+            date_str = date_str[:-1] + "+00:00"
         return datetime.datetime.fromisoformat(date_str)
     except ValueError:
         return date_str  # Return original if parsing fails
 
+
 def split_args(args_str: str):
     """Split multiple arguments like: {a}, {b} or [{...}, {...}]"""
     depth = 0
-    current = ''
+    current = ""
     result = []
     in_string = False
     escape = False
     for char in args_str:
         if char == '"' and not escape:
             in_string = not in_string
-        if not in_string and char == ',' and depth == 0:
+        if not in_string and char == "," and depth == 0:
             result.append(current)
-            current = ''
+            current = ""
         else:
             current += char
             if not in_string:
-                if char in ['{', '[']:
+                if char in ["{", "["]:
                     depth += 1
-                elif char in ['}', ']']:
+                elif char in ["}", "]"]:
                     depth -= 1
-        escape = (char == '\\') and not escape
+        escape = (char == "\\") and not escape
     if current:
         result.append(current)
     return result
+
 
 def parse_arguments_safely(arg_str):
     """Parse arguments with proper date handling"""
@@ -122,28 +154,30 @@ def parse_arguments_safely(arg_str):
     except Exception as ex:
         raise ValueError(f"Failed to parse arguments: {ex}")
 
+
 # Extract balanced brackets from a string
 def extract_balanced_brackets(text: str):
     """Extract string up to the matching closing parenthesis, return (inside, rest)."""
     depth = 0
     in_string = False
     escape = False
-    result = ''
+    result = ""
     for i, char in enumerate(text):
         result += char
         if char == '"' and not escape:
             in_string = not in_string
         if not in_string:
-            if char in '([{':
+            if char in "([{":
                 depth += 1
-            elif char in ')]}':
+            elif char in ")]}":
                 depth -= 1
             if depth == 0:
-                return result.strip()[1:-1], text[i+1:].strip()
-        escape = (char == '\\') and not escape
+                return result.strip()[1:-1], text[i + 1 :].strip()
+        escape = (char == "\\") and not escape
     raise ValueError("Unbalanced brackets in query")
 
-# Mongo DB AI Assistant Export Query Result 
+
+# Mongo DB AI Assistant Export Query Result
 def parse_query_string(query: str):
     """
     Parse Mongo shell-style query like:
@@ -158,7 +192,7 @@ def parse_query_string(query: str):
             raise Exception(
                 f"Only read operations are allowed. '{bad}' is not permitted."
             )
-    
+
     # Regex to match: db.collection.method(...)
     top_match = re.match(r"^db\.(\w+)\.([a-zA-Z]+)\s*\((.*)", query, re.DOTALL)
     if not top_match:
@@ -173,10 +207,10 @@ def parse_query_string(query: str):
         raise Exception(
             f"Only 'find' and 'aggregate' read operations are allowed. Found: '{method}'"
         )
-    
+
     # Extract method calls including chains (balance brackets)
     calls = []
-    remainder = query[query.find(f".{method}(") + len(f".{method}"):]
+    remainder = query[query.find(f".{method}(") + len(f".{method}") :]
     while remainder:
         method_match = re.match(r"\s*\((.*)", remainder, re.DOTALL)
         if not method_match:
@@ -184,7 +218,7 @@ def parse_query_string(query: str):
 
         arg_str, remainder = extract_balanced_brackets(remainder)
         calls.append((method, arg_str.strip()))
-        if '.' in remainder:
+        if "." in remainder:
             next_method_match = re.match(r"\.(\w+)\s*\((.*)", remainder, re.DOTALL)
             if not next_method_match:
                 break
@@ -193,7 +227,7 @@ def parse_query_string(query: str):
                 raise Exception(
                     f"Chained method '{method}' is not allowed. Only safe read methods can be used."
                 )
-            remainder = remainder[remainder.find(f"{method}(") + len(method):]
+            remainder = remainder[remainder.find(f"{method}(") + len(method) :]
         else:
             break
 
@@ -203,14 +237,10 @@ def parse_query_string(query: str):
         try:
             parsed_args = parse_arguments_safely(arg_str)
         except Exception as ex:
-            raise Exception(
-                f"Failed to parse arguments for {method}(): {str(ex)}"
-            )
+            raise Exception(f"Failed to parse arguments for {method}(): {str(ex)}")
         parsed_calls.append((method, parsed_args))
 
     return collection, parsed_calls
-
-
 
 
 def export_query_result(data: str):
@@ -233,8 +263,10 @@ def export_query_result(data: str):
                 cursor = collection.find(filter_doc, projection)
             elif method_name == "aggregate":
                 pipeline = args[0] if len(args) > 0 else []
-                if isinstance(pipeline, list) and all(isinstance(stage, dict) for stage in pipeline):
-                    has_project = any('$project' in stage for stage in pipeline)
+                if isinstance(pipeline, list) and all(
+                    isinstance(stage, dict) for stage in pipeline
+                ):
+                    has_project = any("$project" in stage for stage in pipeline)
                     if not has_project:
                         pipeline.append({"$project": {"_id": 0}})
                 cursor = collection.aggregate(pipeline)
@@ -267,30 +299,30 @@ def export_query_result(data: str):
         RUNNING_QUERIES[run_id] = {
             "cursor": get_cursor,  # defer until stream call
             "cancel_event": cancel_event,
-            "timestamp": time.time()
+            "timestamp": time.time(),
         }
 
-        
         return run_id
 
     except Exception as e:
         print(f"Error preparing query: {e}")
         return None
-    
+
+
 # Streaming response
 async def safe_stream_response(run_id, future_cursor, cancel_event):
-    """ Stream MongoDB Cursor in Json Array"""
-    yield '{"run_id": "' + run_id + '","data": [' 
+    """Stream MongoDB Cursor in Json Array"""
+    yield '{"run_id": "' + run_id + '","data": ['
     first = True
     try:
-        cursor = await future_cursor() # wait for mongodb to prepare cursor
+        cursor = await future_cursor()  # wait for mongodb to prepare cursor
 
         if run_id in RUNNING_QUERIES:
             RUNNING_QUERIES[run_id]["active_cursor"] = cursor
         async for document in cursor:
             if cancel_event.is_set():
                 break
-            document.pop('_id', None)  # Remove _id field from response
+            document.pop("_id", None)  # Remove _id field from response
             if not first:
                 yield ","
             yield json.dumps(document, default=str)  # Convert document to JSON string
@@ -305,7 +337,6 @@ async def safe_stream_response(run_id, future_cursor, cancel_event):
             print(f"Error closing cursor for run_id={run_id}")
         yield "]}"  # Close JSON
         print(f"Run ID: {run_id} finished")
-
 
 
 def stream_query_result(run_id: str):
@@ -323,15 +354,13 @@ def stream_query_result(run_id: str):
         return None
 
 
-
-
 def terminate_current_run(run_id: str):
     """
     Terminate the current MongoDB run.
     """
     entry = RUNNING_QUERIES.pop(run_id, None)
     if not entry:
-        return {"message":"Process Already Completed", "run_id": run_id}
+        return {"message": "Process Already Completed", "run_id": run_id}
     entry["cancel_event"].set()
     if "active_cursor" in entry:
         try:
@@ -342,12 +371,13 @@ def terminate_current_run(run_id: str):
     else:
         print(f"No active cursor found for run_id={run_id}")
 
-    return {"message":"Cancellation Requested", "run_id": run_id}
+    return {"message": "Cancellation Requested", "run_id": run_id}
+
 
 async def main():
     query = input("Enter your MongoDB query: ")
     print(f"Processing query: {query}")
-    run_id=export_query_result(query)
+    run_id = export_query_result(query)
     if not run_id:
         print("Failed to start query.")
         return
