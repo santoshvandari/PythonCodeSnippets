@@ -1,5 +1,4 @@
-import asyncio
-import re,ast, json, uuid, time, math,datetime
+import re,ast, json, uuid, time, datetime, asyncio
 from pymongo import MongoClient
 
 RUNNING_QUERIES = {}  # Store running queries with their run_id
@@ -11,7 +10,7 @@ ALLOWED_CHAIN_METHODS = {
 DISALLOWED_METHODS = {"insert", "update", "remove", "delete", "replace", "drop", "insertOne", "insertMany","updateOne", "updateMany", "deleteOne", "deleteMany", "bulkWrite"}
 
 def get_mongo_database():
-    client = MongoClient("mongodb://localhost:27017")
+    client = MongoClient("mongodb://admin:admin@localhost:27017")
     database = client["mydb"]
     return database
 
@@ -220,7 +219,7 @@ def export_query_result(data: str):
     try:
         if not data:
             raise Exception("Query cannot be empty")
-        collection_name, operations = parse_query_string(data.query)
+        collection_name, operations = parse_query_string(data)
         db = get_mongo_database()
         collection = db[collection_name]
 
@@ -301,7 +300,7 @@ async def safe_stream_response(run_id, future_cursor, cancel_event):
     finally:
         RUNNING_QUERIES.pop(run_id, None)
         try:
-            await cursor.close()
+            cursor.close()
         except:
             print(f"Error closing cursor for run_id={run_id}")
         yield "]}"  # Close JSON
@@ -345,7 +344,7 @@ def terminate_current_run(run_id: str):
 
     return {"message":"Cancellation Requested", "run_id": run_id}
 
-def main():
+async def main():
     query = input("Enter your MongoDB query: ")
     print(f"Processing query: {query}")
     run_id=export_query_result(query)
@@ -357,13 +356,13 @@ def main():
     if not stream:
         print("Failed to stream query results.")
         return
-    for document in stream:
+    async for document in stream:
         print(f"Streaming document for run_id={run_id}: {document}")
     print(f"Finished streaming documents for run_id={run_id}")
 
-    # if like to terminate in middle
-    terminate_current_run(run_id)
+    # if like to terminate in middle if need
+    # terminate_current_run(run_id)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
