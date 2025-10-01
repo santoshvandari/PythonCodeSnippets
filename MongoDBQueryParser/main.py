@@ -4,6 +4,7 @@ from pymongo import MongoClient
 RUNNING_QUERIES = {}  # Store running queries with their run_id
 
 ALLOWED_FIRST_METHODS = {"find", "aggregate"}
+# List of allowed chained methods
 ALLOWED_CHAIN_METHODS = {
     "sort",
     "skip",
@@ -15,6 +16,7 @@ ALLOWED_CHAIN_METHODS = {
     "comment",
     "allowDiskUse",
 }
+# List of disallowed methods for safety
 DISALLOWED_METHODS = {
     "insert",
     "update",
@@ -31,13 +33,13 @@ DISALLOWED_METHODS = {
     "bulkWrite",
 }
 
-
+# MongoDB connection setup
 def get_mongo_database():
-    client = MongoClient("mongodb://admin:admin@localhost:27017")
+    client = MongoClient("mongodb://admin:admin@localhost:27017") # Please change connection string as per your setup
     database = client["mydb"]
     return database
 
-
+# Convert MongoDB shell syntax to Python-evaluable syntax
 def convert_mongo_syntax_to_python(s: str) -> str:
     """
     Converts MongoDB shell syntax to Python-evaluable syntax for ast.literal_eval
@@ -61,7 +63,7 @@ def convert_mongo_syntax_to_python(s: str) -> str:
 
     return s
 
-
+# Post-process parsed arguments to handle dates
 def process_parsed_args(obj):
     """
     Post-process parsed arguments to convert date strings to datetime objects
@@ -86,7 +88,7 @@ def process_parsed_args(obj):
     else:
         return obj
 
-
+# Check if string looks like an ISO date
 def is_iso_date_string(s):
     """Check if string looks like an ISO date"""
     if not isinstance(s, str):
@@ -99,7 +101,7 @@ def is_iso_date_string(s):
         is not None
     )
 
-
+# Parse ISO date string
 def parse_iso_date_string(date_str):
     """Parse ISO date string to datetime object"""
     try:
@@ -109,7 +111,7 @@ def parse_iso_date_string(date_str):
     except ValueError:
         return date_str  # Return original if parsing fails
 
-
+# Split arguments safely
 def split_args(args_str: str):
     """Split multiple arguments like: {a}, {b} or [{...}, {...}]"""
     depth = 0
@@ -135,7 +137,7 @@ def split_args(args_str: str):
         result.append(current)
     return result
 
-
+# Parse arguments safely with date handling
 def parse_arguments_safely(arg_str):
     """Parse arguments with proper date handling"""
     try:
@@ -242,7 +244,7 @@ def parse_query_string(query: str):
 
     return collection, parsed_calls
 
-
+# Query Execution and Streaming
 def export_query_result(data: str):
     """Initiates a query, returns a run_id immediately, and starts the stream in background."""
     run_id = str(uuid.uuid4())
@@ -338,7 +340,7 @@ async def safe_stream_response(run_id, future_cursor, cancel_event):
         yield "]}"  # Close JSON
         print(f"Run ID: {run_id} finished")
 
-
+# API-like functions
 def stream_query_result(run_id: str):
     entry = RUNNING_QUERIES.get(run_id)
     if not entry:
@@ -353,7 +355,7 @@ def stream_query_result(run_id: str):
         print(f"Error streaming results for {run_id}: {e}")
         return None
 
-
+# Terminate current run
 def terminate_current_run(run_id: str):
     """
     Terminate the current MongoDB run.
@@ -373,7 +375,7 @@ def terminate_current_run(run_id: str):
 
     return {"message": "Cancellation Requested", "run_id": run_id}
 
-
+# Example usage
 async def main():
     query = input("Enter your MongoDB query: ")
     print(f"Processing query: {query}")
